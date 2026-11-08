@@ -1,0 +1,6 @@
+geopandas>=0.14
+pyogrio>=0.7
+shapely>=2.0
+pandas>=2.0
+requests>=2.31
+openpyxl>=3.1

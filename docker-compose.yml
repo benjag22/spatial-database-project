@@ -1,0 +1,60 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: pudu-postgis
+    environment:
+      POSTGRES_DB: pudu
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - pudu_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U postgres -d pudu"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  load:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment: &connection
+      PGHOST: postgis
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: pudu
+      PGOPTIONS: "-c client_min_messages=warning"
+    volumes:
+      - ./:/pudu:ro
+    command: >-
+      psql -v ON_ERROR_STOP=1 --single-transaction --quiet
+      -f /pudu/sql/schema.sql
+      -f /pudu/data/sql/municipalities.sql
+      -f /pudu/data/sql/roads.sql
+      -f /pudu/data/sql/snaspe.sql
+      -f /pudu/data/sql/water_bodies.sql
+      -f /pudu/data/sql/urban_areas.sql
+      -f /pudu/data/sql/toponyms.sql
+      -f /pudu/sql/bcn_to_model.sql
+      -f /pudu/data/sql/raw_observation.sql
+      -f /pudu/sql/observations_to_model.sql
+      -c "select coalesce(rejection_reason, 'aceptada') as observations, count(*) as records
+          from staging.raw_observation group by 1 order by 2 desc"
+
+  queries:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment: *connection
+    volumes:
+      - ./:/pudu:ro
+    command: psql -v ON_ERROR_STOP=1 -f /pudu/sql/basic_queries.sql
+
+volumes:
+  pudu_data:
