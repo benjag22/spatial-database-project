@@ -1,0 +1,2 @@
+# RF15: respaldo y VACUUM/ANALYZE todos los domingos a las 03:00. Ajustar la ruta del proyecto.
+0 3 * * 0 cd /ruta/al/proyecto && docker compose run --rm maintenance

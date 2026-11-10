@@ -31,7 +31,7 @@ services:
     volumes:
       - ./:/pudu:ro
     command: >-
-      psql -v ON_ERROR_STOP=1 --single-transaction --quiet
+      psql -v ON_ERROR_STOP=1 --single-transaction
       -f /pudu/sql/schema.sql
       -f /pudu/data/sql/municipalities.sql
       -f /pudu/data/sql/roads.sql
@@ -42,6 +42,10 @@ services:
       -f /pudu/sql/bcn_to_model.sql
       -f /pudu/data/sql/raw_observation.sql
       -f /pudu/sql/observations_to_model.sql
+      -f /pudu/sql/risk_maps.sql
+      -f /pudu/sql/maintenance.sql
+      -f /pudu/sql/crud.sql
+      -f /pudu/sql/analysis_functions.sql
       -c "select coalesce(rejection_reason, 'aceptada') as observations, count(*) as records
           from staging.raw_observation group by 1 order by 2 desc"
 
@@ -54,7 +58,61 @@ services:
     environment: *connection
     volumes:
       - ./:/pudu:ro
-    command: psql -v ON_ERROR_STOP=1 -f /pudu/sql/basic_queries.sql
+    command: >-
+      psql -v ON_ERROR_STOP=1 -P pager=off
+      -f /pudu/sql/basic_queries.sql
+      -f /pudu/sql/spatial_queries.sql
+
+  reload:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment: *connection
+    volumes:
+      - ./:/pudu:ro
+    command: >-
+      psql -v ON_ERROR_STOP=1 --single-transaction
+      -f /pudu/data/sql/raw_observation.sql
+      -f /pudu/sql/observations_to_model.sql
+      -c "call pudu.refresh_derived()"
+      -c "select load_batch, source, species, rows_read, rows_rejected, rows_inserted, rows_existing
+          from pudu.load_log order by id desc limit 10"
+
+  maintenance:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment: *connection
+    volumes:
+      - ./:/pudu:ro
+      - ./backups:/backups
+    command: bash /pudu/scripts/maintenance.sh /backups
+
+  explain:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment: *connection
+    volumes:
+      - ./:/pudu:ro
+    command: psql -v ON_ERROR_STOP=1 -P pager=off -f /pudu/sql/explain_analyze.sql
+
+  crud_demo:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment: *connection
+    volumes:
+      - ./:/pudu:ro
+    command: psql -v ON_ERROR_STOP=1 -P pager=off -f /pudu/sql/crud_demo.sql
 
 volumes:
   pudu_data:

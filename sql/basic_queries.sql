@@ -112,3 +112,15 @@ explain (costs off)
 select count(*)
 from pudu.observation
 where st_dwithin(geom::geography, st_setsrid(st_makepoint(-73.0, -41.5), 4326)::geography, 10000);
+
+
+-- observations_by_partition | Filas por partición de especie (RF13)
+select tableoid::regclass as partition, count(*) as records
+from pudu.observation
+group by 1
+order by 1;
+
+-- load_history | Registro de cargas por lote, fuente y especie (RF16)
+select load_batch, source, species, rows_read, rows_rejected, rows_inserted, rows_existing
+from pudu.load_log
+order by id;

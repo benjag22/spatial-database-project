@@ -44,24 +44,24 @@ where s.code = 'pudu';
 
 
 -- Conteo de amenazas por pudú (dentro de 1000 m) --
-select id, observation_date, dogs, road_segments
-from (
-    select p.id, p.observation_date,
-           (select count(*)
-            from pudu.observation d
-            join pudu.species sd on sd.id = d.species_id
-            where sd.code = 'perro'
-              and st_dwithin(d.geom, p.geom, 0.02)
-              and st_dwithin(st_transform(d.geom, 32718), st_transform(p.geom, 32718), 1000)) as dogs,
-           (select count(*)
-            from pudu.road r
-            where st_dwithin(r.geom, p.geom, 0.02)
-              and st_dwithin(st_transform(r.geom, 32718), st_transform(p.geom, 32718), 1000)) as road_segments
-    from pudu.observation p
-    join pudu.species s on s.id = p.species_id
-    where s.code = 'pudu'
-) x
-order by dogs + road_segments desc, id
+-- Usa el índice geography (observation_geog_gix) y el índice GiST de road con && como filtro previo
+select p.id, p.observation_date, dog_c.dogs, road_c.road_segments
+from pudu.observation p
+join pudu.species s on s.id = p.species_id
+cross join lateral (
+    select count(*) as dogs
+    from pudu.observation d
+    where d.species_id = (select id from pudu.species where code = 'perro')
+      and st_dwithin(d.geom::geography, p.geom::geography, 1000)
+) dog_c
+cross join lateral (
+    select count(*) as road_segments
+    from pudu.road r
+    where r.geom && st_expand(p.geom, 0.02)
+      and st_dwithin(r.geom::geography, p.geom::geography, 1000)
+) road_c
+where s.code = 'pudu'
+order by dog_c.dogs + road_c.road_segments desc, p.id
 limit 10;
 
 

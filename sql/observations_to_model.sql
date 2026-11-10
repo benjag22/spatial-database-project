@@ -40,19 +40,32 @@ update staging.raw_observation set rejection_reason = 'fuera de Chile (a más de
 where rejection_reason is null and municipality_code is null;
 
 update staging.raw_observation o set rejection_reason = 'duplicado (mismo id en la fuente)'
-from (select row_id, row_number() over (partition by source, source_record_id order by row_id) as n
+from (select row_id, row_number() over (partition by source, species, source_record_id order by row_id) as n
       from staging.raw_observation where rejection_reason is null) d
 where o.row_id = d.row_id and d.n > 1;
 
 insert into pudu.observation
     (species_id, source_id, source_record_id, observation_date, date_precision, uncertainty_m,
-     locality, record_type, municipality_code, geom)
+     locality, record_type, municipality_code, source_loaded_at, load_batch, geom)
 select sp.id, so.id, s.source_record_id, s.observation_date::date, s.date_precision, s.uncertainty_m,
-       s.locality, s.record_type, s.municipality_code, s.geom
+       s.locality, s.record_type, s.municipality_code, s.source_loaded_at, s.load_batch, s.geom
 from staging.raw_observation s
 join pudu.species sp on sp.code = s.species
 join pudu.source  so on so.code = s.source
 where s.rejection_reason is null
-on conflict (source_id, source_record_id) do nothing;
+on conflict (species_id, source_id, source_record_id) do nothing;
+
+insert into pudu.load_log (load_batch, source, species, rows_read, rows_rejected, rows_inserted, rows_existing)
+select r.load_batch, r.source, r.species, r.n, r.rejected, coalesce(i.n, 0), r.n - r.rejected - coalesce(i.n, 0)
+from (select load_batch, source, species, count(*) as n,
+             count(*) filter (where rejection_reason is not null) as rejected
+      from staging.raw_observation
+      group by load_batch, source, species) r
+left join (select o.load_batch, so.code as source, sp.code as species, count(*) as n
+           from pudu.observation o
+           join pudu.source  so on so.id = o.source_id
+           join pudu.species sp on sp.id = o.species_id
+           group by o.load_batch, so.code, sp.code) i
+  on i.load_batch = r.load_batch and i.source = r.source and i.species = r.species;
 
 analyze pudu.observation;

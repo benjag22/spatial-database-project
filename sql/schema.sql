@@ -100,7 +100,7 @@ create table pudu.toponym (
 );
 
 create table pudu.observation (
-    id                bigserial primary key,
+    id                bigserial,
     species_id        smallint not null references pudu.species,
     source_id         smallint not null references pudu.source,
     source_record_id  text not null,
@@ -111,8 +111,28 @@ create table pudu.observation (
     record_type       text,
     municipality_code integer not null references pudu.municipality,
     loaded_at         timestamptz not null default now(),
+    source_loaded_at  timestamptz,
+    load_batch        text not null default 'manual',
     geom              geometry(point, 4326) not null,
-    unique (source_id, source_record_id)
+    primary key (id, species_id),
+    unique (species_id, source_id, source_record_id)
+) partition by list (species_id);
+
+create table pudu.observation_pudu  partition of pudu.observation for values in (1);
+create table pudu.observation_puma  partition of pudu.observation for values in (2);
+create table pudu.observation_perro partition of pudu.observation for values in (3);
+create table pudu.observation_other partition of pudu.observation default;
+
+create table pudu.load_log (
+    id            bigserial primary key,
+    load_batch    text not null,
+    source        text not null,
+    species       text not null,
+    rows_read     integer not null,
+    rows_rejected integer not null,
+    rows_inserted integer not null,
+    rows_existing integer not null,
+    logged_at     timestamptz not null default now()
 );
 
 create index region_geom_gix         on pudu.region         using gist (geom);
@@ -124,6 +144,8 @@ create index urban_area_geom_gix     on pudu.urban_area     using gist (geom);
 create index toponym_geom_gix        on pudu.toponym        using gist (geom);
 create index observation_geom_gix    on pudu.observation    using gist (geom);
 create index observation_geog_gix    on pudu.observation    using gist ((geom::geography));
+create index road_geog_gix           on pudu.road           using gist ((geom::geography));
+create index toponym_geog_gix        on pudu.toponym        using gist ((geom::geography));
 
 create index municipality_region_idx      on pudu.municipality (region_code);
 create index toponym_class_idx            on pudu.toponym (topo_class);

@@ -1,7 +1,7 @@
 import hashlib
 import re
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import geopandas as gpd
@@ -56,6 +56,7 @@ OBSERVATION_COLUMNS = {
     "source_record_id": "text", "lat": "double precision", "lon": "double precision",
     "date_text": "text", "uncertainty_m": "double precision", "locality": "text",
     "record_type": "text", "observation_date": "date", "date_precision": "text",
+    "source_loaded_at": "timestamptz", "load_batch": "text",
 }
 SOURCES = {"gbif", "simbio", "dryad"}
 SPECIES = {"pudu", "puma", "perro"}
@@ -200,6 +201,7 @@ def observations_to_sql():
                    if p.suffix.lower() in (".csv", ".txt", ".tsv", ".xlsx", ".xls"))
     if not files:
         raise SystemExit(f"No files in {folder}. Run first: python scripts/download.py gbif")
+    batch = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     tables, used = [], []
     for path in files:
         parts = path.stem.lower().split("_")
@@ -216,6 +218,8 @@ def observations_to_sql():
             "date_text": c["date_text"],
             "uncertainty_m": to_number(c["uncertainty_m"]),
             "locality": c["locality"], "record_type": c["record_type"],
+            "source_loaded_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+            "load_batch": batch,
         })
         t["observation_date"], t["date_precision"] = standardize_dates(t["date_text"], c["year"])
         no_id = t["source_record_id"].isna() | (t["source_record_id"] == "")
