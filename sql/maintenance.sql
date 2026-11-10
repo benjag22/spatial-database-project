@@ -1,8 +1,9 @@
 -- RF17: refresco de vistas materializadas dependientes tras recargar capas BCN u observaciones.
--- Orden de dependencia, buffers, agua, zona a restringir, zona apta, riesgo por pudú y distancia a caminos.
+-- Orden de dependencia, áreas protegidas subdivididas, buffers, agua, zona a restringir, zona apta, riesgo por pudú y distancia a caminos.
 create or replace procedure pudu.refresh_derived()
 language plpgsql as $$
 begin
+    refresh materialized view pudu.mv_protected_area_sub;
     refresh materialized view pudu.mv_settlement_buffer;
     refresh materialized view pudu.mv_water_union;
     refresh materialized view pudu.mv_risk_zone;

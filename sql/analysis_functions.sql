@@ -21,7 +21,7 @@ language sql stable as $$
     cross join lateral (
         select count(*) as n
         from pudu.toponym t
-        where t.topo_class ilike any (array['%poblado%', '%localidad%', '%caser%', '%estancia%', '%minero%'])
+        where pudu.settlement_buffer_m(t.topo_class) is not null
           and st_dwithin(t.geom::geography, p.geom::geography, p_radius_m)
     ) settlement_c
     where p.species_id = (select s.id from pudu.species s where s.code = 'pudu')
@@ -33,10 +33,9 @@ create or replace function pudu.settlement_buffers(
 returns table (toponym_id integer, topo_class text, geom geometry)
 language sql stable as $$
     select t.id, t.topo_class,
-           st_transform(
-               st_buffer(st_transform(t.geom, 32718),
-                         case when t.topo_class ilike '%estancia%' then p_estancia_buffer_m else p_buffer_m end),
-               4326)
+           st_transform(st_buffer(st_transform(t.geom, 32718), b.radius_m), 4326)
     from pudu.toponym t
-    where t.topo_class ilike any (array['%poblado%', '%localidad%', '%caser%', '%estancia%', '%minero%'])
+    cross join lateral (
+        select pudu.settlement_buffer_m(t.topo_class, p_buffer_m, p_estancia_buffer_m) as radius_m) b
+    where b.radius_m is not null
 $$;

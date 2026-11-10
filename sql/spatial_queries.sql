@@ -24,8 +24,7 @@ select count(*) as pudus,
 
        count(*) filter (where exists (
            select 1 from pudu.toponym t
-           where t.geom && st_makeenvelope(-80, -60, -65, -17, 4326)
-             and t.topo_class ilike any (array['%poblado%', '%localidad%', '%caser%', '%estancia%', '%minero%'])
+           where pudu.settlement_buffer_m(t.topo_class) is not null
              and st_dwithin(t.geom, p.geom, 0.02)
              and st_dwithin(st_transform(t.geom, 32718), st_transform(p.geom, 32718), 1000)
        )) as near_settlement,
@@ -68,20 +67,16 @@ limit 10;
 -- Buffers de asentamientos rurales (con ST_Buffer) --
 
 -- Buffers generados: cantidad y superficie total por clase
-select topo_class, buffer_m, count(*) as buffers,
-       round((sum(st_area(geom::geography)) / 1e6)::numeric, 1) as total_area_km2
+select b.topo_class, b.buffer_m, count(*) as buffers,
+       round((sum(st_area(b.geom::geography)) / 1e6)::numeric, 1) as total_area_km2
 from (
-    select t.topo_class,
-           case when t.topo_class ilike '%estancia%' then 500 else 1000 end as buffer_m,
-           st_transform(
-               st_buffer(st_transform(t.geom, 32718),
-                         case when t.topo_class ilike '%estancia%' then 500 else 1000 end),
-               4326) as geom
+    select t.topo_class, r.radius_m as buffer_m,
+           st_transform(st_buffer(st_transform(t.geom, 32718), r.radius_m), 4326) as geom
     from pudu.toponym t
-    where t.geom && st_makeenvelope(-80, -60, -65, -17, 4326)
-      and t.topo_class ilike any (array['%poblado%', '%localidad%', '%caser%', '%estancia%', '%minero%'])
+    cross join lateral (select pudu.settlement_buffer_m(t.topo_class) as radius_m) r
+    where r.radius_m is not null
 ) b
-group by topo_class, buffer_m
+group by b.topo_class, b.buffer_m
 order by buffers desc;
 
 -- Pudúes que quedan dentro de alguna zona de perturbación (ST_Intersects)
@@ -89,14 +84,11 @@ select count(*) as pudus,
        count(*) filter (where exists (
            select 1
            from pudu.toponym t
-           where t.geom && st_makeenvelope(-80, -60, -65, -17, 4326)
-             and t.topo_class ilike any (array['%poblado%', '%localidad%', '%caser%', '%estancia%', '%minero%'])
+           cross join lateral (select pudu.settlement_buffer_m(t.topo_class) as radius_m) r
+           where r.radius_m is not null
              and st_dwithin(t.geom, p.geom, 0.02)
              and st_intersects(
-                   st_transform(
-                       st_buffer(st_transform(t.geom, 32718),
-                                 case when t.topo_class ilike '%estancia%' then 500 else 1000 end),
-                       4326),
+                   st_transform(st_buffer(st_transform(t.geom, 32718), r.radius_m), 4326),
                    p.geom)
        )) as inside_buffer
 from pudu.observation p
@@ -105,11 +97,11 @@ where s.code = 'pudu';
 
 
 -- Solapamiento con áreas protegidas (SNASPE) --
-select a.name, a.protected_area_type, count(*) as pudus
-from pudu.protected_area a
+select a.name, a.protected_area_type, count(distinct p.id) as pudus
+from pudu.mv_protected_area_sub a
 join pudu.observation p on st_intersects(a.geom, p.geom)
 join pudu.species s on s.id = p.species_id
 where s.code = 'pudu'
-group by a.id, a.name, a.protected_area_type
+group by a.protected_area_id, a.name, a.protected_area_type
 order by pudus desc
 limit 10;

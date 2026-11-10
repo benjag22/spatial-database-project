@@ -27,7 +27,7 @@ services:
       PGUSER: postgres
       PGPASSWORD: postgres
       PGDATABASE: pudu
-      PGOPTIONS: "-c client_min_messages=warning"
+      PGOPTIONS: "-c client_min_messages=warning -c jit=off"
     volumes:
       - ./:/pudu:ro
     command: >-
@@ -113,6 +113,53 @@ services:
     volumes:
       - ./:/pudu:ro
     command: psql -v ON_ERROR_STOP=1 -P pager=off -f /pudu/sql/crud_demo.sql
+
+  model:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment: *connection
+    volumes:
+      - ./:/pudu:ro
+    command: psql -v ON_ERROR_STOP=1 -P pager=off -f /pudu/sql/model_description.sql
+
+  replace_bcn:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment: *connection
+    volumes:
+      - ./:/pudu:ro
+    command: >-
+      psql -v ON_ERROR_STOP=1 --single-transaction
+      -f /pudu/data/sql/municipalities.sql
+      -f /pudu/data/sql/roads.sql
+      -f /pudu/data/sql/snaspe.sql
+      -f /pudu/data/sql/water_bodies.sql
+      -f /pudu/data/sql/urban_areas.sql
+      -f /pudu/data/sql/toponyms.sql
+      -f /pudu/sql/bcn_replace.sql
+      -c "call pudu.replace_bcn_layers()"
+
+  scheduler:
+    image: postgis/postgis:16-3.4
+    profiles: ["tools"]
+    restart: unless-stopped
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      <<: *connection
+      MAINTENANCE_INTERVAL_HOURS: "168"
+      KEEP_DAYS: "30"
+    volumes:
+      - ./:/pudu:ro
+      - ./backups:/backups
+    command: bash /pudu/scripts/scheduler.sh /backups
 
 volumes:
   pudu_data:

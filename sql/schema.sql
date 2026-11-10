@@ -135,6 +135,18 @@ create table pudu.load_log (
     logged_at     timestamptz not null default now()
 );
 
+-- RF6 y RF7: única definición de qué clases de toponimia son asentamientos humanos rurales y de su radio.
+-- Devuelve null para las demás clases. Estancias usan un radio menor que el resto.
+create function pudu.settlement_buffer_m(
+    p_topo_class text, p_buffer_m double precision default 1000, p_estancia_buffer_m double precision default 500)
+returns double precision
+language sql stable as $$
+    select case
+        when p_topo_class ilike '%estancia%' then p_estancia_buffer_m
+        when p_topo_class ilike any (array['%centro poblado%', '%localidad rural%', '%caser%', '%minero%']) then p_buffer_m
+    end
+$$;
+
 create index region_geom_gix         on pudu.region         using gist (geom);
 create index municipality_geom_gix   on pudu.municipality   using gist (geom);
 create index road_geom_gix           on pudu.road           using gist (geom);
@@ -176,3 +188,20 @@ join pudu.observation b
  and a.source_id <> b.source_id
  and a.observation_date = b.observation_date
  and st_dwithin(a.geom::geography, b.geom::geography, 50);
+
+comment on table pudu.species           is 'Especies del análisis y su rol (objetivo, depredador natural, amenaza antrópica)';
+comment on table pudu.source            is 'Fuentes de datos (GBIF, SIMBIO, Dryad, BCN)';
+comment on table pudu.region            is 'Regiones de Chile (BCN), unión de sus comunas. Polígono en EPSG:4326';
+comment on table pudu.municipality      is 'Comunas de Chile (BCN). Cada comuna pertenece a una región';
+comment on table pudu.road              is 'Red vial (BCN), tramos como multilínea con la región que los contiene';
+comment on table pudu.protected_area    is 'Áreas Silvestres Protegidas por el Estado, SNASPE (BCN)';
+comment on table pudu.water_body        is 'Masas de agua, lagos, lagunas y glaciares (BCN)';
+comment on table pudu.urban_area        is 'Áreas urbanas consolidadas (BCN), con la comuna que las contiene';
+comment on table pudu.toponym           is 'Nombres geográficos (BCN) como punto, con la comuna que lo contiene';
+comment on table pudu.observation       is 'Observaciones de pudú, puma y perro de todas las fuentes. Particionada por especie';
+comment on table pudu.load_log          is 'Registro por lote, fuente y especie de lo leído, rechazado, insertado y ya existente';
+comment on column pudu.observation.uncertainty_m   is 'Incertidumbre posicional declarada por la fuente, en metros';
+comment on column pudu.observation.date_precision  is 'Precisión de la fecha de la fuente (día, mes o año)';
+comment on column pudu.observation.source_record_id is 'Identificador del registro en la fuente, evita duplicados al recargar';
+comment on column pudu.observation.load_batch      is 'Lote de carga que insertó el registro';
+comment on column pudu.toponym.topo_class          is 'Atributo Clase_Topo de la BCN';

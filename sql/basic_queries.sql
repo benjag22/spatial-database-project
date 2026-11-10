@@ -58,26 +58,19 @@ order by records desc;
 select count(*) as pudus,
        count(*) filter (where inside) as in_snaspe,
        round(100.0 * count(*) filter (where inside) / nullif(count(*), 0), 1) as percentage
-from (select exists (select 1 from pudu.protected_area a where st_intersects(a.geom, o.geom)) as inside
+from (select exists (select 1 from pudu.mv_protected_area_sub a where st_intersects(a.geom, o.geom)) as inside
       from pudu.observation o
       join pudu.species sp on sp.id = o.species_id
       where sp.code = 'pudu') x;
 
 -- pudu_to_road | Distance from each pudu to the nearest road (RF4)
 -- Filter: the 5 nearest segments according to the index (<->). Refinement: exact distance in meters.
-with d as (
-    select o.id,
-           (select min(st_distance(r.geom::geography, o.geom::geography))
-            from (select geom from pudu.road order by geom <-> o.geom limit 5) r) as dist_m
-    from pudu.observation o
-    join pudu.species sp on sp.id = o.species_id
-    where sp.code = 'pudu'
-)
+-- The distances are precomputed in pudu.mv_pudu_road_distance (RF13), refreshed by pudu.refresh_derived().
 select count(*) as pudus,
        round(percentile_cont(0.5) within group (order by dist_m)::numeric) as median_m,
        count(*) filter (where dist_m <= 500) as within_500_m,
        round(100.0 * count(*) filter (where dist_m <= 500) / nullif(count(*), 0), 1) as percentage_500_m
-from d;
+from pudu.mv_pudu_road_distance;
 
 -- dogs_near_pudus | Pudus with the most dog records within 1 km (ST_DWithin, RF4)
 select p.id, p.observation_date, m.name as municipality, count(d.id) as dogs_within_1_km
