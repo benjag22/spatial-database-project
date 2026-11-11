@@ -44,6 +44,12 @@ from (select row_id, row_number() over (partition by source, species, source_rec
       from staging.raw_observation where rejection_reason is null) d
 where o.row_id = d.row_id and d.n > 1;
 
+update staging.raw_observation s set rejection_reason = 'duplicado de GBIF'
+where s.rejection_reason is null and s.source = 'simbio' and s.gbif_id is not null
+  and exists (select 1 from staging.raw_observation g
+              where g.source = 'gbif' and g.species = s.species
+                and g.source_record_id = s.gbif_id and g.rejection_reason is null);
+
 -- Inserta solo lo nuevo y registra en load_log lo realmente insertado (RF16).
 -- Una recarga del mismo archivo deja rows_inserted = 0 y rows_existing = filas aceptadas.
 with inserted as (

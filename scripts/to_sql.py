@@ -24,7 +24,7 @@ BCN_LAYERS = {
     "roads": {
         "name":         ["nombre", "nombre_cam", "nom_ruta", "name"],
         "mop_code":     ["rol", "rol_label", "rol_mop", "cod_ruta"],
-        "category":     ["categoria", "clase", "jerarquia", "tipo"],
+        "category":     ["catego", "categoria", "clase", "jerarquia", "tipo"],
         "route_class":  ["clase_ruta", "clase_urba", "clasificac"],
         "surface_type": ["carpeta", "tipo_carpe", "tipo_carpeta", "superficie"],
     },
@@ -36,27 +36,28 @@ BCN_LAYERS = {
                      "entity":   ["entidad", "tipo", "categoria"]},
     "toponyms":     {"name":       ["nombre", "toponimo"],
                      "topo_class": ["clase_topo", "clase"],
-                     "fc_code":    ["codigo_fc", "cod_fc"]},
+                     "fc_code":    ["fc", "codigo_fc", "cod_fc"]},
 }
 REQUIRED_BCN = {"municipalities": ["municipality_code", "name"]}
 INTEGER_COLUMNS = {"municipality_code", "region_code"}
 
 OBSERVATION_FIELDS = {
-    "source_record_id": ["gbifid", "occurrenceid", "id", "id_registro", "registro", "catalognumber"],
+    "source_record_id": ["gbifid", "occurrenceid", "id", "id_registro", "registro", "catalognumber", "enlace_observacion"],
     "lat":              ["decimallatitude", "latitud", "latitude", "lat"],
     "lon":              ["decimallongitude", "longitud", "longitude", "lon", "long"],
     "date_text":        ["eventdate", "fecha", "fecha_de_observacion", "fecha_observacion", "date"],
     "year":             ["year", "anio", "ano"],
     "uncertainty_m":    ["coordinateuncertaintyinmeters", "incertidumbre_m", "incertidumbre"],
     "locality":         ["locality", "localidad", "sitio", "site"],
-    "record_type":      ["basisofrecord", "tipo_registro", "metodo"],
+    "record_type":      ["basisofrecord", "tipo_registro", "metodo", "base_del_registro"],
+    "gbif_link":        ["enlace_obs_fuente_datos"],
 }
 OBSERVATION_COLUMNS = {
     "row_id": "bigint", "source": "text", "species": "text", "file": "text",
     "source_record_id": "text", "lat": "double precision", "lon": "double precision",
     "date_text": "text", "uncertainty_m": "double precision", "locality": "text",
     "record_type": "text", "observation_date": "date", "date_precision": "text",
-    "source_loaded_at": "timestamptz", "load_batch": "text",
+    "source_loaded_at": "timestamptz", "load_batch": "text", "gbif_id": "text",
 }
 SOURCES = {"gbif", "simbio", "dryad"}
 SPECIES = {"pudu", "puma", "perro"}
@@ -210,6 +211,10 @@ def observations_to_sql():
             print(f"  skipping {path.name}: the name must be <source>_<species>, e.g. simbio_pudu.csv")
             continue
         df = read_table(path)
+        if source == "dryad":
+            detection = to_number(df["detection"])
+            country = df["country"].str.replace('"', "", regex=False).str.strip().str.lower()
+            df = df[(detection > 0) & (country == "chile")]
         c = pick_columns(df, OBSERVATION_FIELDS, ["lat", "lon"], path.name)
         t = pd.DataFrame({
             "source": source, "species": species, "file": path.name,
@@ -220,6 +225,7 @@ def observations_to_sql():
             "locality": c["locality"], "record_type": c["record_type"],
             "source_loaded_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
             "load_batch": batch,
+            "gbif_id": c["gbif_link"].str.extract(r"/occurrence/(\d+)", expand=False),
         })
         t["observation_date"], t["date_precision"] = standardize_dates(t["date_text"], c["year"])
         no_id = t["source_record_id"].isna() | (t["source_record_id"] == "")

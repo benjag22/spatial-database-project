@@ -27,6 +27,9 @@ GBIF_FIELDS = ["gbifID",
                "institutionCode"]
 MAX_PER_SLICE = 9_000
 
+SIMBIO_API = "https://simbio.mma.gob.cl/Especies/DownloadExcelEspecimenes?IDEspecie="
+SIMBIO_SPECIES = {"pudu": 4604, "puma": 4530}
+
 BCN_PAGE = "https://www.bcn.cl/siit/mapas_vectoriales"
 BCN_BASE = "https://www.bcn.cl/obtienearchivo?id=repositorio%2F10221%2F"
 BCN_LAYERS = {
@@ -118,9 +121,27 @@ def download_bcn():
         print(f"{len(r.content) / 1e6:.1f} MB")
 
 
+def download_simbio():
+    folder = DATA / "observations"
+    folder.mkdir(parents=True, exist_ok=True)
+    for code, species_id in SIMBIO_SPECIES.items():
+        r = requests.get(f"{SIMBIO_API}{species_id}", timeout=600)
+        r.raise_for_status()
+        if not r.content.startswith(b"PK"):
+            sys.exit(f"SIMBIO did not return a .zip for '{code}'")
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            members = [m for m in z.namelist() if m.lower().endswith(".xlsx")]
+            if len(members) != 1:
+                sys.exit(f"SIMBIO zip for '{code}' has {len(members)} .xlsx files, expected 1")
+            (folder / f"simbio_{code}.xlsx").write_bytes(z.read(members[0]))
+        print(f"simbio_{code}.xlsx: downloaded")
+
+
 if __name__ == "__main__":
     what = sys.argv[1] if len(sys.argv) > 1 else "all"
     if what in ("all", "gbif"):
         download_gbif()
+    if what in ("all", "simbio"):
+        download_simbio()
     if what in ("all", "bcn"):
         download_bcn()
