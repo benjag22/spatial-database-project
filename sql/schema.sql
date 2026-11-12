@@ -57,7 +57,7 @@ create table pudu.road (
     category     text,
     route_class  text,
     surface_type text,
-    region_code  smallint references pudu.region,
+    region_code  smallint not null references pudu.region,
     geom         geometry(multilinestring, 4326) not null check (st_isvalid(geom)),
     length_m     numeric generated always as (round(st_length(geom::geography)::numeric, 1)) stored
 );
@@ -84,7 +84,7 @@ create table pudu.urban_area (
     id                serial primary key,
     locality          text,
     entity            text,
-    municipality_code integer references pudu.municipality,
+    municipality_code integer not null references pudu.municipality,
     geom              geometry(multipolygon, 4326) not null check (st_isvalid(geom)),
     area_km2          numeric generated always as (round((st_area(geom::geography) / 1e6)::numeric, 2)) stored,
     perimeter_km      numeric generated always as (round((st_perimeter(geom::geography) / 1e3)::numeric, 2)) stored
@@ -95,7 +95,7 @@ create table pudu.toponym (
     name              text,
     topo_class        text,
     fc_code           text,
-    municipality_code integer references pudu.municipality,
+    municipality_code integer not null references pudu.municipality,
     geom              geometry(point, 4326) not null
 );
 
@@ -145,6 +145,13 @@ language sql stable as $$
         when p_topo_class ilike '%estancia%' then p_estancia_buffer_m
         when p_topo_class ilike any (array['%centro poblado%', '%localidad rural%', '%caser%', '%minero%']) then p_buffer_m
     end
+$$;
+
+-- Zona UTM (WGS 84) que corresponde a un punto, para los cálculos métricos (buffers) en cualquier parte del territorio
+create function pudu.utm_srid(p_geom geometry)
+returns integer
+language sql immutable as $$
+    select (case when st_y(p_geom) < 0 then 32700 else 32600 end) + floor((st_x(p_geom) + 180) / 6)::integer + 1
 $$;
 
 create index region_geom_gix         on pudu.region         using gist (geom);

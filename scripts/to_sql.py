@@ -123,9 +123,9 @@ def pick_columns(df, mapping, required, label):
 
 def read_shapefiles(layer):
     folder = DATA / "bcn" / layer
-    files = sorted(folder.rglob("*.shp"))
+    files = sorted([*folder.rglob("*.shp"), *folder.rglob("*.geojson")])
     if not files:
-        raise SystemExit(f"No .shp in {folder}. Run first: python scripts/download.py bcn")
+        raise SystemExit(f"No .shp or .geojson in {folder}. Run first: python scripts/download.py bcn")
     parts = []
     for shp in files:
         gdf = gpd.read_file(shp)

@@ -1,7 +1,7 @@
 -- RF7: zonas de influencia de asentamientos (1000 m, 500 m para estancias), en UTM solo para el cálculo
 create materialized view pudu.mv_settlement_buffer as
 select t.id as toponym_id, t.topo_class,
-       st_transform(st_buffer(st_transform(t.geom, 32718), b.radius_m), 4326) as geom
+       st_transform(st_buffer(st_transform(t.geom, pudu.utm_srid(t.geom)), b.radius_m), 4326) as geom
 from pudu.toponym t
 cross join lateral (select pudu.settlement_buffer_m(t.topo_class) as radius_m) b
 where b.radius_m is not null;
@@ -64,3 +64,16 @@ create materialized view pudu.mv_protected_area_sub as
 select id as protected_area_id, name, protected_area_type, st_subdivide(geom, 255) as geom
 from pudu.protected_area;
 create index mv_protected_area_sub_gix on pudu.mv_protected_area_sub using gist (geom);
+
+-- RF4: distancia de cada pudú a la zona urbana más cercana (mismo método que mv_pudu_road_distance)
+create materialized view pudu.mv_pudu_urban_distance as
+select p.id, p.observation_date, d.urban_id, d.dist_m
+from pudu.observation p
+cross join lateral (
+    select c.id as urban_id, st_distance(c.geom::geography, p.geom::geography) as dist_m
+    from (select u.id, u.geom from pudu.urban_area u order by u.geom <-> p.geom limit 5) c
+    order by dist_m
+    limit 1
+) d
+where p.species_id = (select s.id from pudu.species s where s.code = 'pudu');
+create index mv_pudu_urban_distance_id_idx on pudu.mv_pudu_urban_distance (id);

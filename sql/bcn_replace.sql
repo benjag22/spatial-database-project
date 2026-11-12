@@ -65,8 +65,7 @@ begin
 
     insert into pudu.road (name, mop_code, category, route_class, surface_type, region_code, geom)
     select r.name, r.mop_code, r.category, r.route_class, r.surface_type,
-           (select s.region_code from staging.region_sub s
-             where st_intersects(s.geom, st_pointonsurface(r.geom)) limit 1),
+           coalesce((select s.region_code from staging.region_sub s where st_intersects(s.geom, st_pointonsurface(r.geom)) limit 1), (select s.region_code from staging.region_sub s order by s.geom <-> st_pointonsurface(r.geom) limit 1)),
            r.geom
     from (select name, mop_code, category, route_class, surface_type,
                  st_multi(st_collectionextract(st_makevalid(geom), 2)) as geom
@@ -87,8 +86,7 @@ begin
 
     insert into pudu.urban_area (locality, entity, municipality_code, geom)
     select u.locality, u.entity,
-           (select s.municipality_code from staging.municipality_sub s
-             where st_intersects(s.geom, st_pointonsurface(u.geom)) limit 1),
+           coalesce((select s.municipality_code from staging.municipality_sub s where st_intersects(s.geom, st_pointonsurface(u.geom)) limit 1), (select s.municipality_code from staging.municipality_sub s order by s.geom <-> st_pointonsurface(u.geom) limit 1)),
            u.geom
     from (select locality, entity, st_multi(st_collectionextract(st_makevalid(geom), 3)) as geom
           from staging.urban_areas) u
@@ -96,8 +94,7 @@ begin
 
     insert into pudu.toponym (name, topo_class, fc_code, municipality_code, geom)
     select t.name, t.topo_class, t.fc_code,
-           (select s.municipality_code from staging.municipality_sub s
-             where st_intersects(s.geom, t.point) limit 1),
+           coalesce((select s.municipality_code from staging.municipality_sub s where st_intersects(s.geom, t.point) limit 1), (select s.municipality_code from staging.municipality_sub s order by s.geom <-> t.point limit 1)),
            t.point
     from (select name, topo_class, fc_code, st_pointonsurface(geom) as point
           from staging.toponyms where geom is not null and not st_isempty(geom)) t;

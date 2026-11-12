@@ -50,6 +50,14 @@ where s.rejection_reason is null and s.source = 'simbio' and s.gbif_id is not nu
               where g.source = 'gbif' and g.species = s.species
                 and g.source_record_id = s.gbif_id and g.rejection_reason is null);
 
+-- Cámaras trampa: varias activaciones el mismo día en el mismo sitio (~11 m) cuentan como un solo registro de puma.
+update staging.raw_observation o set rejection_reason = 'puma repetido (mismo sitio y día)'
+from (select row_id, row_number() over (partition by source, round(lat::numeric, 4), round(lon::numeric, 4), observation_date
+                                        order by row_id) as n
+      from staging.raw_observation
+      where rejection_reason is null and species = 'puma' and observation_date is not null) d
+where o.row_id = d.row_id and d.n > 1;
+
 -- Inserta solo lo nuevo y registra en load_log lo realmente insertado (RF16).
 -- Una recarga del mismo archivo deja rows_inserted = 0 y rows_existing = filas aceptadas.
 with inserted as (

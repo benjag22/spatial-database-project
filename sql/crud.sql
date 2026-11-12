@@ -303,7 +303,8 @@ begin
         new.municipality_code := null;
     end if;
     if new.municipality_code is null then
-        new.municipality_code := pudu.locate_municipality(st_pointonsurface(new.geom));
+        new.municipality_code := coalesce(pudu.locate_municipality(st_pointonsurface(new.geom)),
+            (select m.municipality_code from pudu.municipality m order by m.geom <-> st_pointonsurface(new.geom) limit 1));
     end if;
     return new;
 end $$;
@@ -322,3 +323,227 @@ drop trigger if exists urban_area_locate on pudu.urban_area;
 create trigger urban_area_locate
     before insert or update on pudu.urban_area
     for each row execute function pudu.tg_locate_municipality();
+
+-- CRUD de las demás capas (RF10). La comuna o región se asigna por contención y, si no hay, por cercanía (triggers).
+
+create or replace function pudu.clean_line(p_geom geometry)
+returns geometry
+language plpgsql as $$
+declare
+    g geometry;
+begin
+    if p_geom is null then
+        raise exception 'la geometría es nula' using errcode = '23502';
+    end if;
+    if st_srid(p_geom) <> 4326 then
+        raise exception 'la geometría debe estar en EPSG:4326 (recibido %)', st_srid(p_geom) using errcode = '23514';
+    end if;
+    g := st_multi(st_collectionextract(st_makevalid(p_geom), 2));
+    if st_isempty(g) then
+        raise exception 'la geometría no contiene líneas' using errcode = '23514';
+    end if;
+    return g;
+end $$;
+
+create or replace function pudu.clean_point(p_geom geometry)
+returns geometry
+language plpgsql as $$
+begin
+    if p_geom is null then
+        raise exception 'la geometría es nula' using errcode = '23502';
+    end if;
+    if st_srid(p_geom) <> 4326 or geometrytype(p_geom) <> 'POINT' then
+        raise exception 'se espera un punto en EPSG:4326' using errcode = '23514';
+    end if;
+    return p_geom;
+end $$;
+
+create or replace function pudu.tg_locate_region()
+returns trigger
+language plpgsql as $$
+declare
+    pt geometry;
+begin
+    if tg_op = 'UPDATE' and new.geom is distinct from old.geom
+       and new.region_code is not distinct from old.region_code then
+        new.region_code := null;
+    end if;
+    if new.region_code is null then
+        pt := st_pointonsurface(new.geom);
+        new.region_code := coalesce(
+            (select r.region_code from pudu.region r where st_intersects(r.geom, pt) order by r.region_code limit 1),
+            (select r.region_code from pudu.region r order by r.geom <-> pt limit 1));
+    end if;
+    return new;
+end $$;
+
+drop trigger if exists road_locate on pudu.road;
+create trigger road_locate
+    before insert or update on pudu.road
+    for each row execute function pudu.tg_locate_region();
+
+-- Caminos
+create or replace function pudu.add_road(p_name text, p_mop_code text, p_category text, p_route_class text,
+                                         p_surface_type text, p_geom geometry)
+returns bigint
+language plpgsql as $$
+declare
+    v_id bigint;
+begin
+    insert into pudu.road (name, mop_code, category, route_class, surface_type, geom)
+    values (p_name, p_mop_code, p_category, p_route_class, p_surface_type, pudu.clean_line(p_geom))
+    returning road_id into v_id;
+    return v_id;
+end $$;
+
+create or replace function pudu.update_road(p_id bigint, p_name text default null, p_mop_code text default null,
+                                            p_category text default null, p_route_class text default null,
+                                            p_surface_type text default null, p_geom geometry default null)
+returns boolean
+language plpgsql as $$
+begin
+    update pudu.road
+    set name = coalesce(p_name, name), mop_code = coalesce(p_mop_code, mop_code),
+        category = coalesce(p_category, category), route_class = coalesce(p_route_class, route_class),
+        surface_type = coalesce(p_surface_type, surface_type),
+        geom = case when p_geom is null then geom else pudu.clean_line(p_geom) end
+    where road_id = p_id;
+    return found;
+end $$;
+
+create or replace function pudu.delete_road(p_id bigint)
+returns boolean
+language plpgsql as $$
+begin
+    delete from pudu.road where road_id = p_id;
+    return found;
+end $$;
+
+-- Áreas protegidas
+create or replace function pudu.add_protected_area(p_name text, p_type text, p_geom geometry)
+returns integer
+language plpgsql as $$
+declare
+    v_id integer;
+begin
+    insert into pudu.protected_area (name, protected_area_type, geom)
+    values (p_name, p_type, pudu.clean_polygon(p_geom)) returning id into v_id;
+    return v_id;
+end $$;
+
+create or replace function pudu.update_protected_area(p_id integer, p_name text default null,
+                                                      p_type text default null, p_geom geometry default null)
+returns boolean
+language plpgsql as $$
+begin
+    update pudu.protected_area
+    set name = coalesce(p_name, name), protected_area_type = coalesce(p_type, protected_area_type),
+        geom = case when p_geom is null then geom else pudu.clean_polygon(p_geom) end
+    where id = p_id;
+    return found;
+end $$;
+
+create or replace function pudu.delete_protected_area(p_id integer)
+returns boolean
+language plpgsql as $$
+begin
+    delete from pudu.protected_area where id = p_id;
+    return found;
+end $$;
+
+-- Masas de agua
+create or replace function pudu.add_water_body(p_name text, p_type text, p_geom geometry)
+returns integer
+language plpgsql as $$
+declare
+    v_id integer;
+begin
+    insert into pudu.water_body (name, body_type, geom)
+    values (p_name, p_type, pudu.clean_polygon(p_geom)) returning id into v_id;
+    return v_id;
+end $$;
+
+create or replace function pudu.update_water_body(p_id integer, p_name text default null,
+                                                  p_type text default null, p_geom geometry default null)
+returns boolean
+language plpgsql as $$
+begin
+    update pudu.water_body
+    set name = coalesce(p_name, name), body_type = coalesce(p_type, body_type),
+        geom = case when p_geom is null then geom else pudu.clean_polygon(p_geom) end
+    where id = p_id;
+    return found;
+end $$;
+
+create or replace function pudu.delete_water_body(p_id integer)
+returns boolean
+language plpgsql as $$
+begin
+    delete from pudu.water_body where id = p_id;
+    return found;
+end $$;
+
+-- Áreas urbanas
+create or replace function pudu.add_urban_area(p_locality text, p_entity text, p_geom geometry)
+returns integer
+language plpgsql as $$
+declare
+    v_id integer;
+begin
+    insert into pudu.urban_area (locality, entity, geom)
+    values (p_locality, p_entity, pudu.clean_polygon(p_geom)) returning id into v_id;
+    return v_id;
+end $$;
+
+create or replace function pudu.update_urban_area(p_id integer, p_locality text default null,
+                                                  p_entity text default null, p_geom geometry default null)
+returns boolean
+language plpgsql as $$
+begin
+    update pudu.urban_area
+    set locality = coalesce(p_locality, locality), entity = coalesce(p_entity, entity),
+        geom = case when p_geom is null then geom else pudu.clean_polygon(p_geom) end
+    where id = p_id;
+    return found;
+end $$;
+
+create or replace function pudu.delete_urban_area(p_id integer)
+returns boolean
+language plpgsql as $$
+begin
+    delete from pudu.urban_area where id = p_id;
+    return found;
+end $$;
+
+-- Topónimos
+create or replace function pudu.add_toponym(p_name text, p_topo_class text, p_fc_code text, p_geom geometry)
+returns integer
+language plpgsql as $$
+declare
+    v_id integer;
+begin
+    insert into pudu.toponym (name, topo_class, fc_code, geom)
+    values (p_name, p_topo_class, p_fc_code, pudu.clean_point(p_geom)) returning id into v_id;
+    return v_id;
+end $$;
+
+create or replace function pudu.update_toponym(p_id integer, p_name text default null, p_topo_class text default null,
+                                               p_fc_code text default null, p_geom geometry default null)
+returns boolean
+language plpgsql as $$
+begin
+    update pudu.toponym
+    set name = coalesce(p_name, name), topo_class = coalesce(p_topo_class, topo_class),
+        fc_code = coalesce(p_fc_code, fc_code),
+        geom = case when p_geom is null then geom else pudu.clean_point(p_geom) end
+    where id = p_id;
+    return found;
+end $$;
+
+create or replace function pudu.delete_toponym(p_id integer)
+returns boolean
+language plpgsql as $$
+begin
+    delete from pudu.toponym where id = p_id;
+    return found;
+end $$;

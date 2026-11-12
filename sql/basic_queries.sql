@@ -79,6 +79,8 @@ join pudu.municipality m on m.municipality_code = p.municipality_code
 join pudu.observation d
   on d.species_id = (select id from pudu.species where code = 'perro')
  and st_dwithin(d.geom::geography, p.geom::geography, 1000)
+ and (d.observation_date is null or p.observation_date is null or abs(d.observation_date - p.observation_date) <= 730)
+ and (d.uncertainty_m is null or d.uncertainty_m <= 1000)
 where p.species_id = (select id from pudu.species where code = 'pudu')
 group by p.id, p.observation_date, m.name
 order by dogs_within_1_km desc
@@ -117,3 +119,33 @@ order by 1;
 select load_batch, source, species, rows_read, rows_rejected, rows_inserted, rows_existing
 from pudu.load_log
 order by id;
+
+-- observations_by_year | Evolución temporal de los avistamientos por año y especie
+select extract(year from o.observation_date)::int as year,
+       count(*) filter (where sp.code = 'pudu')  as pudu,
+       count(*) filter (where sp.code = 'puma')  as puma,
+       count(*) filter (where sp.code = 'perro') as dog
+from pudu.observation o
+join pudu.species sp on sp.id = o.species_id
+where o.observation_date is not null
+group by 1
+order by 1;
+
+-- pudus_by_month | Estacionalidad, solo fechas con precisión de día o mes
+select extract(month from o.observation_date)::int as month, count(*) as pudus
+from pudu.observation o
+join pudu.species sp on sp.id = o.species_id
+where sp.code = 'pudu' and o.date_precision in ('día', 'mes')
+group by 1
+order by 1;
+
+-- pudu_density_by_municipality | Agrupación por densidad, pudúes por km² de comuna
+select m.name as municipality, count(*) as pudus, m.area_km2,
+       round(count(*) / nullif(m.area_km2, 0), 4) as pudus_per_km2
+from pudu.observation o
+join pudu.species sp on sp.id = o.species_id
+join pudu.municipality m on m.municipality_code = o.municipality_code
+where sp.code = 'pudu'
+group by m.municipality_code, m.name, m.area_km2
+order by pudus_per_km2 desc nulls last
+limit 10;

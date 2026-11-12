@@ -80,7 +80,9 @@ def download_gbif():
     folder = DATA / "observations"
     folder.mkdir(parents=True, exist_ok=True)
     for code, name in SPECIES.items():
-        params = {"country": "CL", "taxonKey": taxon_key(name), "hasCoordinate": "true",
+        key = taxon_key(name)
+        print(f"{code}: GBIF taxonKey {key}")
+        params = {"country": "CL", "taxonKey": key, "hasCoordinate": "true",
                   "hasGeospatialIssue": "false", "occurrenceStatus": "PRESENT"}
         slices = latitude_slices(params)
         total = sum(n for _, _, n in slices)
@@ -109,7 +111,7 @@ def download_gbif():
 def download_bcn():
     for layer, url in BCN_LAYERS.items():
         target = DATA / "bcn" / layer
-        if any(target.rglob("*.shp")):
+        if any(target.rglob("*.shp")) or any(target.rglob("*.geojson")):
             continue
         print(f"bcn/{layer}:", end=" ", flush=True)
         r = requests.get(url, timeout=600, headers={"User-Agent": "Mozilla/5.0 (academic project)"})

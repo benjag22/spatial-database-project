@@ -10,6 +10,7 @@ begin
     refresh materialized view pudu.mv_safe_zone;
     refresh materialized view pudu.mv_pudu_risk;
     refresh materialized view pudu.mv_pudu_road_distance;
+    refresh materialized view pudu.mv_pudu_urban_distance;
 end $$;
 
 -- Regenera las comunas y regiones subdivididas que usa la carga de observaciones tras cambiar pudu.municipality.
